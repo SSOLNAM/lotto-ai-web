@@ -1,110 +1,85 @@
 import streamlit as st
 import pandas as pd
-from lotto_logic import LottoEngine # 우리가 만든 엔진 가져오기
+import os
+from lotto_logic import LottoEngine
 
-# 페이지 설정 (제목, 아이콘 등)
-st.set_page_config(
-    page_title="AI 로또 명당",
-    page_icon="🎱",
-    layout="centered"
-)
+# 파일 경로 설정
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH = os.path.join(BASE_DIR, 'number.csv')
 
-# 스타일 꾸미기 (CSS 주입)
-st.markdown("""
-<style>
-    .big-font { font-size:20px !important; font-weight: bold; }
-    .ball {
-        display: inline-block;
-        width: 40px; height: 40px;
-        line-height: 40px;
-        border-radius: 50%;
-        text-align: center;
-        color: white;
-        font-weight: bold;
-        margin: 2px;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-    }
-    .ball-yellow { background-color: #fbc400; text-shadow: 1px 1px 2px #b08900; }
-    .ball-blue { background-color: #69c8f2; text-shadow: 1px 1px 2px #3b8eb5; }
-    .ball-red { background-color: #ff7272; text-shadow: 1px 1px 2px #c44545; }
-    .ball-grey { background-color: #aaaaaa; text-shadow: 1px 1px 2px #666666; }
-    .ball-green { background-color: #b0d840; text-shadow: 1px 1px 2px #7fa120; }
-</style>
-""", unsafe_allow_html=True)
+def load_raw_data():
+    """CSV 파일 로드 (제목 줄 제외 로직 포함)"""
+    if os.path.exists(CSV_PATH):
+        # 첫 번째 줄(제목)을 건너뛰고 로드
+        df = pd.read_csv(CSV_PATH, skiprows=0)
+        # 만약 첫 줄이 한글 제목 등이면 아래처럼 필터링
+        df = df[df['회차'].get(0) != '회차'] 
+        return df
+    return pd.DataFrame(columns=['회차', '1', '2', '3', '4', '5', '6', '보너스'])
 
-# 공 색상 결정 함수
-def get_ball_html(num):
-    color_class = "ball-green"
-    if num <= 10: color_class = "ball-yellow"
-    elif num <= 20: color_class = "ball-blue"
-    elif num <= 30: color_class = "ball-red"
-    elif num <= 40: color_class = "ball-grey"
+def save_data(df):
+    """CSV 파일 저장 (인덱스 없이 저장)"""
+    df.to_csv(CSV_PATH, index=False)
+
+# 페이지 설정
+st.set_page_config(page_title="Lotto AI 유연한 엔진", layout="wide")
+
+st.title("🎰 로또 당첨 번호 관리 및 AI 생성기")
+
+# 사이드바 메뉴
+menu = st.sidebar.selectbox("메뉴 선택", ["번호 생성하기", "당첨 번호 입력/업데이트", "전체 당첨 내역 확인"])
+
+engine = LottoEngine()
+
+if menu == "번호 생성하기":
+    st.header("🤖 AI 번호 생성 (유연한 7분할 엔진)")
+    count = st.number_input("생성할 게임 수", min_value=1, max_value=10, value=5)
     
-    return f'<div class="ball {color_class}">{num}</div>'
-
-# --- 메인 화면 ---
-st.title("🎱 AI 통계 기반 로또 생성기")
-st.caption("최근 50회차 데이터 분석 & 7분할 구간 패턴 적용 (수익률 12% 엔진)")
-
-# 엔진 로드 (캐싱하여 속도 향상)
-@st.cache_resource
-def load_engine():
-    return LottoEngine()
-
-engine = load_engine()
-
-# 사이드바 (설정)
-with st.sidebar:
-    st.header("⚙️ 옵션 설정")
-    st.info("꿈에서 본 숫자가 있나요?")
-    
-    fixed_input = st.multiselect(
-        "고정수 (무조건 포함)",
-        options=range(1, 46),
-        max_selections=5
-    )
-    
-    exclude_input = st.multiselect(
-        "제외수 (절대 안 나옴)",
-        options=range(1, 46)
-    )
-    
-    game_count = st.slider("생성할 게임 수", 1, 10, 5)
-
-# 메인 버튼
-if st.button("✨ AI 번호 생성하기", type="primary", use_container_width=True):
-    with st.spinner("AI가 최적의 패턴을 분석 중입니다..."):
-        # 엔진 실행
-        try:
-            result = engine.generate_numbers(
-                count=game_count,
-                fixed=fixed_input,
-                exclude=exclude_input
-            )
-            
-            # 분석 결과 표시
-            st.success("분석 완료! 행운의 번호가 나왔습니다.")
-            
-            with st.expander("📊 AI 분석 리포트 보기", expanded=True):
-                st.write(f"**적용된 최적 7분할 패턴:** `{result['ai_pattern']}`")
-                st.caption("※ 1번대부터 40번대까지 번호가 골고루 분포된 황금 비율입니다.")
-            
+    if st.button("번호 생성! ✨"):
+        result = engine.generate_numbers(count=count)
+        for game in result['games']:
+            st.subheader(f"Game {game['game_seq']}")
+            cols = st.columns(6)
+            for idx, num in enumerate(game['numbers']):
+                cols[idx].button(str(num), key=f"btn_{game['game_seq']}_{num}")
+            st.write(f"📊 합계: {game['sum']} | 홀짝: {game['odd_even']}")
             st.divider()
-            
-            # 결과 카드 출력
-            for game in result['games']:
-                cols = st.columns([1, 4])
-                with cols[0]:
-                    st.markdown(f"**GAME {game['game_seq']}**")
-                    st.caption(f"합계: {game['sum']}")
-                with cols[1]:
-                    # 공 HTML 생성
-                    balls_html = "".join([get_ball_html(n) for n in game['numbers']])
-                    st.markdown(balls_html, unsafe_allow_html=True)
-                st.divider()
-                
-        except Exception as e:
-            st.error(f"오류가 발생했습니다: {e}")
 
-else:
-    st.info("위 버튼을 눌러 번호를 생성해보세요!")
+elif menu == "당첨 번호 입력/업데이트":
+    st.header("📝 매주 당첨 번호 추가")
+    
+    with st.form("input_form"):
+        col_r, col1, col2, col3, col4, col5, col6, col_b = st.columns(8)
+        new_round = col_r.text_input("회차 (예: 1,210)")
+        n1 = col1.number_input("1번", 1, 45)
+        n2 = col2.number_input("2번", 1, 45)
+        n3 = col3.number_input("3번", 1, 45)
+        n4 = col4.number_input("4번", 1, 45)
+        n5 = col5.number_input("5번", 1, 45)
+        n6 = col6.number_input("6번", 1, 45)
+        bn = col_b.number_input("보너스", 1, 45)
+        
+        submit = st.form_submit_button("번호 추가하기")
+        
+        if submit:
+            df = load_raw_data()
+            # 중복 회차 확인
+            if new_round in df['회차'].values:
+                st.error("이미 존재하는 회차입니다.")
+            else:
+                new_data = {
+                    '회차': new_round, '1': n1, '2': n2, '3': n3, '4': n4, '5': n5, '6': n6, '보너스': bn
+                }
+                df = pd.concat([pd.DataFrame([new_data]), df], ignore_index=True)
+                save_data(df)
+                st.success(f"{new_round}회 당첨 번호가 저장되었습니다!")
+                # 엔진 데이터 새로고침
+                engine.refresh_data()
+
+elif menu == "전체 당첨 내역 확인":
+    st.header("📜 전체 당첨 번호 목록")
+    df = load_raw_data()
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.warning("데이터가 없습니다.")
